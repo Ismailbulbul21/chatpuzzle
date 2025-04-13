@@ -27,9 +27,11 @@ const Puzzles = () => {
         setAiGenerating(true)
         setSource('api')
         try {
+          console.log("Attempting to generate questions with Gemini API");
           const generatedQuestions = await generateQuizQuestions(PUZZLE_CATEGORIES, DEFAULT_PUZZLE_COUNT)
           
           if (generatedQuestions && generatedQuestions.length > 0) {
+            console.log("Successfully generated questions:", generatedQuestions.length);
             // Add temporary IDs to the AI-generated questions
             const questionsWithIds = generatedQuestions.map((q, index) => ({
               ...q,
@@ -40,9 +42,12 @@ const Puzzles = () => {
             setAiGenerating(false)
             setLoading(false)
             return
+          } else {
+            console.warn("Generated questions array is empty");
           }
         } catch (apiError) {
-          console.error('Error generating questions from API:', apiError)
+          console.error('Error generating questions from API:', apiError);
+          setError(`API error: ${apiError.message || 'Unknown error'}`);
           setSource('database') // Fallback to database if API fails
         }
         
@@ -131,15 +136,19 @@ const Puzzles = () => {
       
       // Submit all responses
       const responsePromises = Object.entries(responses).map(([puzzle_id, response]) => {
+        // For AI-generated questions, create a new UUID instead of using null
+        const finalPuzzleId = puzzle_id.startsWith('ai-') 
+          ? crypto.randomUUID() 
+          : puzzle_id;
+          
         return supabase
           .from('puzzle_responses')
-          .upsert({
+          .insert({  // Use insert instead of upsert for AI-generated puzzle IDs
             user_id: user.id,
-            puzzle_id: puzzle_id.startsWith('ai-') ? null : puzzle_id, // Don't save reference to temp AI ids
+            puzzle_id: finalPuzzleId,
             response,
-            // In a real app, we would set response_vector using an API call to DeepSeek here
             response_vector: null
-          })
+          });
       })
       
       await Promise.all(responsePromises)
