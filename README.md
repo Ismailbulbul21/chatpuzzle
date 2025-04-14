@@ -1,6 +1,6 @@
-# PuzzleChat - Dynamic Quiz App
+# BulbulChat - Dynamic Quiz & Chat App
 
-A React application that generates dynamic quiz questions using AI and matches users based on their responses.
+A React application that generates dynamic quiz questions using AI and matches users based on their responses for engaging group chats.
 
 ## Features
 
