@@ -18,7 +18,7 @@ const Layout = ({ children }) => {
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <Link to="/" className="flex-shrink-0 flex items-center">
-                <span className="text-white font-bold text-xl">PuzzleChat</span>
+                <span className="text-white font-bold text-xl">BulbulChat</span>
               </Link>
             </div>
             
@@ -118,7 +118,7 @@ const Layout = ({ children }) => {
       
       <footer className="bg-blue-600 text-white py-4">
         <div className="container mx-auto px-4 text-center">
-          <p>© 2025 PuzzleChat - Ku xidhnow dhaqanka Soomaalida</p>
+          <p>© 2025 BulbulChat - Ku xidhnow dhaqanka Soomaalida</p>
         </div>
       </footer>
     </div>
