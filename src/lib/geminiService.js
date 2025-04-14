@@ -27,25 +27,37 @@ export const generateQuizQuestions = async (
             throw new Error('API key is missing or empty');
         }
 
-        const prompt = `Generate ${count} unique quiz questions in Somali language about the following categories: ${categories.join(', ')}.
+        // Choose a random subset of categories to ensure variety
+        const shuffledCategories = [...categories].sort(() => 0.5 - Math.random());
+        const selectedCategories = shuffledCategories.slice(0, Math.min(6, categories.length));
+
+        const prompt = `Generate ${count} unique, creative, and engaging quiz questions in Somali language about the following categories: ${selectedCategories.join(', ')}.
+
+IMPORTANT INSTRUCTIONS:
+1. Make questions diverse and fun - avoid repetitive themes
+2. Include both factual and opinion-based questions
+3. Make questions culturally relevant to Somalia and East Africa
+4. Mix easy and challenging questions
+5. Include at least one question that encourages personal expression
+6. For multiple choice questions, make options thoughtful and occasionally humorous
+7. For open-ended questions, design them to reveal personality traits
+
+Each question should follow this format:
+1. For multiple choice questions (about 70% of questions):
+{
+  "category": "category name",
+  "question": "The question text in Somali",
+  "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
+}
     
-    Each question should follow this format:
-    1. For multiple choice questions:
-    {
-      "category": "category name",
-      "question": "The question text in Somali",
-      "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
-    }
+2. For open-ended questions (about 30% of questions):
+{
+  "category": "category name",
+  "question": "The question text in Somali",
+  "options": null
+}
     
-    2. For open-ended questions:
-    {
-      "category": "category name",
-      "question": "The question text in Somali",
-      "options": null
-    }
-    
-    Make about 70% multiple choice and 30% open-ended.
-    Return ONLY valid JSON array of questions without any additional text.`;
+Return ONLY valid JSON array of questions without any additional text.`;
 
         console.log(`Making request to OpenRouter API with model ${DEFAULT_MODEL}`);
 
@@ -67,7 +79,7 @@ export const generateQuizQuestions = async (
                         }
                     ],
                     max_tokens: 4096,
-                    temperature: 0.7
+                    temperature: 0.8
                 })
             });
 
@@ -128,6 +140,21 @@ export const generateQuizQuestions = async (
                 {
                     category: "humor",
                     question: "Sheeko-xariirooyin Soomaaliyeed maxay inta badan ka hadlaan?",
+                    options: null
+                },
+                {
+                    category: "sports",
+                    question: "Ciyaarta ugu caansan Soomaaliya waa?",
+                    options: ["Kubadda Cagta", "Orodka", "Kubadda Kolayga", "Dabaasha"]
+                },
+                {
+                    category: "technology",
+                    question: "Shirkadda telefoonada gacanta ee ugu caansan Soomaaliya?",
+                    options: ["Hormuud", "Somtel", "Telesom", "Golis"]
+                },
+                {
+                    category: "culture",
+                    question: "Maxaa kuu muhiimsan dhaqanka Soomaalida?",
                     options: null
                 }
             ];

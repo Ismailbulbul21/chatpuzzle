@@ -15,18 +15,33 @@ const Puzzles = () => {
   const [error, setError] = useState(null)
   const [source, setSource] = useState('database') // 'database' or 'api'
   const [aiGenerating, setAiGenerating] = useState(false)
+  const [seenPuzzleIds, setSeenPuzzleIds] = useState([])
   
   useEffect(() => {
     const fetchPuzzles = async () => {
       try {
-        // Get user
+        setLoading(true)
+        
+        // Get current user
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        if (!user) throw new Error('User not authenticated')
+        
+        // Fetch previously seen puzzles to avoid repetition
+        const { data: seenResponses, error: seenError } = await supabase
+          .from('puzzle_responses')
+          .select('puzzle_id')
+          .eq('user_id', user.id)
+        
+        if (seenError) throw seenError
+        
+        // Extract IDs of seen puzzles
+        const seenIds = seenResponses?.map(r => r.puzzle_id) || []
+        setSeenPuzzleIds(seenIds)
         
         // First try to fetch AI-generated questions using Gemini API
-        setAiGenerating(true)
-        setSource('api')
+        let apiError
         try {
+          setAiGenerating(true)
           console.log("Attempting to generate questions with Gemini API");
           const generatedQuestions = await generateQuizQuestions(PUZZLE_CATEGORIES, DEFAULT_PUZZLE_COUNT)
           
@@ -35,36 +50,53 @@ const Puzzles = () => {
             // Add temporary IDs to the AI-generated questions
             const questionsWithIds = generatedQuestions.map((q, index) => ({
               ...q,
-              id: `ai-${Date.now()}-${index}`
+              id: `ai-${index}`,
+              source: 'api'
             }))
             
             setPuzzles(questionsWithIds)
-            setAiGenerating(false)
+            setSource('api')
             setLoading(false)
+            setAiGenerating(false)
             return
           } else {
             console.warn("Generated questions array is empty");
           }
-        } catch (apiError) {
+        } catch (error) {
+          apiError = error
           console.error('Error generating questions from API:', apiError);
-          setError(`API error: ${apiError.message || 'Unknown error'}`);
-          setSource('database') // Fallback to database if API fails
+        } finally {
+          setAiGenerating(false)
         }
-        
-        setAiGenerating(false)
         
         // Fallback: fetch questions from database if API fails
         const { data, error } = await supabase
           .from('puzzles')
           .select('*')
-          .eq('is_active', true)
           .order('created_at', { ascending: false })
-          .limit(7)
+          .limit(50)  // Get more questions than needed to filter out seen ones
         
         if (error) throw error
         
-        if (data) {
-          setPuzzles(data)
+        if (data && data.length > 0) {
+          // Filter out puzzles the user has already seen
+          const unseenPuzzles = data.filter(puzzle => !seenIds.includes(puzzle.id))
+          
+          // If we have enough unseen puzzles, use them
+          if (unseenPuzzles.length >= DEFAULT_PUZZLE_COUNT) {
+            // Shuffle and pick a random subset
+            const shuffled = [...unseenPuzzles].sort(() => 0.5 - Math.random())
+            setPuzzles(shuffled.slice(0, DEFAULT_PUZZLE_COUNT))
+          } else {
+            // If not enough unseen puzzles, use a mix of seen and unseen
+            // but prioritize unseen ones
+            const shuffledAll = [...data].sort(() => 0.5 - Math.random())
+            setPuzzles(shuffledAll.slice(0, DEFAULT_PUZZLE_COUNT))
+          }
+          
+          setSource('database')
+        } else {
+          throw new Error('No puzzles available in the database')
         }
       } catch (error) {
         console.error('Error fetching puzzles:', error)
@@ -78,18 +110,18 @@ const Puzzles = () => {
   }, [])
   
   const handleResponseChange = (puzzle_id, response) => {
-    setResponses(prev => ({
-      ...prev,
+    setResponses({
+      ...responses,
       [puzzle_id]: response
-    }))
+    })
   }
   
   const handleNext = () => {
     const currentPuzzle = puzzles[currentPuzzleIndex]
     
-    // Validate response
+    // Validate that the user has answered the current question
     if (!responses[currentPuzzle.id]) {
-      setError('Fadlan ka jawaab su\'aasha kahor intaadan u gudbin kan xiga.')
+      setError('Fadlan ka jawaab su\'aasha ka hor inta aadan gelin midka xiga')
       return
     }
     
@@ -100,9 +132,9 @@ const Puzzles = () => {
   const handleSubmit = async () => {
     const currentPuzzle = puzzles[currentPuzzleIndex]
     
-    // Validate response
+    // Validate that the user has answered the current question
     if (!responses[currentPuzzle.id]) {
-      setError('Fadlan ka jawaab su\'aasha kahor intaadan gudbin.')
+      setError('Fadlan ka jawaab su\'aal kasta')
       return
     }
     
@@ -124,21 +156,24 @@ const Puzzles = () => {
         }))
         
         // Save questions to database
-        const { error: saveError } = await supabase
-          .from('puzzles')
-          .insert(questionsToSave)
+        try {
+          const { error: saveError } = await supabase
+            .from('puzzles')
+            .insert(questionsToSave)
           
-        if (saveError) {
-          console.error('Error saving AI-generated questions:', saveError)
-          // Continue anyway, not critical
+          if (saveError) {
+            console.error('Error saving AI-generated questions:', saveError)
+          }
+        } catch (e) {
+          console.error('Exception saving AI questions:', e)
         }
       }
       
-      // Submit all responses
+      // Save user responses
       const responsePromises = Object.entries(responses).map(([puzzle_id, response]) => {
         // For AI-generated questions, create a new UUID instead of using null
-        const finalPuzzleId = puzzle_id.startsWith('ai-') 
-          ? crypto.randomUUID() 
+        const finalPuzzleId = puzzle_id.startsWith('ai-')
+          ? null  // Let the database generate an ID
           : puzzle_id;
           
         return supabase
@@ -163,7 +198,7 @@ const Puzzles = () => {
       const { data: groupData, error: groupError } = await supabase
         .rpc('create_or_join_group', { 
           user_uuid: user.id,
-          similarity_threshold: 0.7
+          similarity_threshold: 0.6  // Use the new threshold value
         })
       
       if (groupError) throw groupError

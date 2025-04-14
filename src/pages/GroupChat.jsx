@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Layout from '../components/Layout'
 import VoiceCall from '../components/VoiceCall'
+import { Link } from 'react-router-dom'
 
 const GroupChat = () => {
   const { groupId } = useParams()
@@ -14,11 +15,14 @@ const GroupChat = () => {
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [activeCall, setActiveCall] = useState(null)
   const [isCreatingCall, setIsCreatingCall] = useState(false)
   const [error, setError] = useState(null)
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false)
+  const [memberToRemove, setMemberToRemove] = useState(null)
   
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -41,7 +45,7 @@ const GroupChat = () => {
         // Check if user is member of the group
         const { data: memberData, error: memberError } = await supabase
           .from('group_members')
-          .select('*')
+          .select('*, is_admin')
           .eq('group_id', groupId)
           .eq('user_id', user.id)
           .single()
@@ -51,6 +55,9 @@ const GroupChat = () => {
           navigate('/')
           return
         }
+        
+        // Set admin status
+        setIsAdmin(memberData.is_admin || false)
         
         // Fetch group details
         const { data: groupData, error: groupError } = await supabase
@@ -161,6 +168,22 @@ const GroupChat = () => {
           )
           .subscribe()
         
+        // Set up realtime subscription for deleted messages
+        const deleteSubscription = supabase
+          .channel('deleted-messages')
+          .on('postgres_changes',
+            {
+              event: 'DELETE',
+              schema: 'public',
+              table: 'messages',
+              filter: `group_id=eq.${groupId}`
+            },
+            (payload) => {
+              setMessages(prev => prev.filter(msg => msg.id !== payload.old.id))
+            }
+          )
+          .subscribe()
+        
         // Set up realtime subscription for call sessions
         const callsSubscription = supabase
           .channel('calls-channel')
@@ -183,6 +206,7 @@ const GroupChat = () => {
         
         return () => {
           supabase.removeChannel(messagesSubscription)
+          supabase.removeChannel(deleteSubscription)
           supabase.removeChannel(callsSubscription)
         }
       } catch (error) {
@@ -221,6 +245,25 @@ const GroupChat = () => {
       setError('Khalad ayaa dhacay markii la diraayay fariinta')
     } finally {
       setSending(false)
+    }
+  }
+  
+  const handleDeleteMessage = async (messageId) => {
+    if (!isAdmin) return
+    
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', messageId)
+      
+      if (error) throw error
+      
+      // Update the messages list
+      setMessages(messages.filter(message => message.id !== messageId))
+    } catch (error) {
+      console.error('Error deleting message:', error)
+      setError('Failed to delete message. Please try again.')
     }
   }
   
@@ -388,32 +431,197 @@ const GroupChat = () => {
     }
   }
   
+  const formatDate = (dateString) => {
+    const date = new Date(dateString)
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  
+  const handleRemoveMember = async (userId) => {
+    if (!isAdmin) return
+    setMemberToRemove(null)
+    
+    try {
+      const { error } = await supabase
+        .from('group_members')
+        .delete()
+        .match({ group_id: groupId, user_id: userId })
+      
+      if (error) throw error
+      
+      // If successful, update the members list
+      setMembers(members.filter(member => member.user_id !== userId))
+      
+      // Add system message about removed user
+      const memberName = members.find(m => m.user_id === userId)?.profiles?.username || 'A user'
+      
+      const { error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          group_id: groupId,
+          user_id: currentUser.id,
+          content: `${memberName} has been removed from the group`,
+          is_system_message: true
+        })
+        
+      if (msgError) console.error('Error adding system message:', msgError)
+      
+    } catch (error) {
+      console.error('Error removing member:', error)
+      setError('Failed to remove member. Please try again.')
+    }
+  }
+  
+  const handleDeleteGroup = async () => {
+    if (!isAdmin) return
+    setShowDeleteGroupModal(false)
+    
+    try {
+      // First delete all group members
+      const { error: memberError } = await supabase
+        .from('group_members')
+        .delete()
+        .eq('group_id', groupId)
+      
+      if (memberError) throw memberError
+      
+      // Then delete all messages
+      const { error: msgError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('group_id', groupId)
+      
+      if (msgError) throw msgError
+      
+      // Finally delete the group itself
+      const { error: groupError } = await supabase
+        .from('groups')
+        .delete()
+        .eq('id', groupId)
+      
+      if (groupError) throw groupError
+      
+      // Navigate back to home
+      navigate('/')
+      
+    } catch (error) {
+      console.error('Error deleting group:', error)
+      setError('Failed to delete group. Please try again.')
+    }
+  }
+  
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-12">
+        <div className="flex items-center justify-center min-h-screen">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
         </div>
       </Layout>
     )
   }
   
-  const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleTimeString('so-SO', { hour: '2-digit', minute: '2-digit' })
-  }
-  
   return (
     <Layout>
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Chat Area */}
-          <div className="w-full md:w-3/4 bg-white rounded-lg shadow-md flex flex-col h-[calc(100vh-10rem)]">
-            {/* Group Header */}
-            <div className="border-b p-4 flex justify-between items-center">
+      <div className="container mx-auto px-4 py-8">
+        {/* Group Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 space-y-3 md:space-y-0">
+          <div>
+            <Link to="/" className="inline-flex items-center text-blue-600 mb-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M7.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd" />
+              </svg>
+              Back
+            </Link>
+            <h1 className="text-3xl font-bold">{group?.name || 'Loading...'}</h1>
+            {group?.description && <p className="text-gray-600 mt-1">{group.description}</p>}
+          </div>
+          
+          <div className="flex space-x-3">
+            {!activeCall && (
+              <button
+                onClick={startCall}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                </svg>
+                Start Call
+              </button>
+            )}
+            
+            {isAdmin && (
+              <div className="relative inline-block text-left">
+                <button
+                  type="button"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  onClick={() => setShowDeleteGroupModal(true)}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  Delete Group
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Delete Group Modal */}
+        {showDeleteGroupModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+              <h3 className="text-xl font-bold mb-4">Delete Group</h3>
+              <p className="mb-6">Are you sure you want to delete this group? This action cannot be undone.</p>
+              <div className="flex justify-end space-x-3">
+                <button
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  onClick={() => setShowDeleteGroupModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  onClick={handleDeleteGroup}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Member Remove Confirmation Modal */}
+        {memberToRemove && (
+          <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+              <h3 className="text-xl font-bold mb-4">Remove Member</h3>
+              <p className="mb-6">Are you sure you want to remove this member from the group?</p>
+              <div className="flex justify-end space-x-3">
+                <button
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  onClick={() => setMemberToRemove(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  onClick={() => handleRemoveMember(memberToRemove)}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+          <div className="flex-1 flex flex-col bg-white rounded-lg shadow-md overflow-hidden h-[80vh]">
+            {/* Chat Header */}
+            <div className="p-4 border-b flex justify-between items-center">
               <div>
-                <h1 className="text-xl font-bold">{group?.name}</h1>
-                <p className="text-sm text-gray-500">{members.length} xubnood</p>
+                <h2 className="text-xl font-bold">{group?.name || 'Chat'}</h2>
+                <p className="text-sm text-gray-500">
+                  {members.length} xubnood
+                </p>
               </div>
               
               <div className="flex items-center space-x-2">
@@ -455,7 +663,7 @@ const GroupChat = () => {
                     key={message.id}
                     className={`flex ${message.user_id === currentUser.id ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div className={`max-w-xs md:max-w-md rounded-lg p-3 ${
+                    <div className={`relative max-w-xs md:max-w-md rounded-lg p-3 ${
                       message.user_id === currentUser.id
                         ? 'bg-blue-500 text-white'
                         : 'bg-gray-200 text-gray-800'
@@ -475,6 +683,19 @@ const GroupChat = () => {
                       }`}>
                         {formatDate(message.created_at)}
                       </div>
+                      
+                      {/* Delete button for admins */}
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleDeleteMessage(message.id)}
+                          className="absolute top-1 right-1 text-xs rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-100 text-red-500"
+                          title="Delete message"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -533,38 +754,53 @@ const GroupChat = () => {
             
             <div className="space-y-3">
               {members.map((member) => (
-                <div key={member.user_id} className="flex items-center space-x-2">
-                  <div className="relative">
-                    {member.profiles?.avatar_url ? (
-                      <img
-                        src={member.profiles.avatar_url}
-                        alt={member.profiles.username}
-                        className="w-8 h-8 rounded-full"
+                <div key={member.user_id} className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="relative">
+                      {member.profiles?.avatar_url ? (
+                        <img
+                          src={member.profiles.avatar_url}
+                          alt={member.profiles.username}
+                          className="w-8 h-8 rounded-full"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
+                          <span className="text-gray-600">
+                            {member.profiles?.username?.charAt(0) || '?'}
+                          </span>
+                        </div>
+                      )}
+                      
+                      <span 
+                        className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border border-white ${
+                          member.profiles?.is_online ? 'bg-green-500' : 'bg-gray-400'
+                        }`}
                       />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
-                        <span className="text-gray-600">
-                          {member.profiles?.username?.charAt(0) || '?'}
-                        </span>
-                      </div>
-                    )}
+                    </div>
                     
-                    <span 
-                      className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border border-white ${
-                        member.profiles?.is_online ? 'bg-green-500' : 'bg-gray-400'
-                      }`}
-                    />
+                    <div>
+                      <p className="text-sm font-medium">
+                        {member.profiles?.username || 'Unknown'}
+                        {member.is_admin && <span className="ml-1 text-xs text-blue-500">(Admin)</span>}
+                      </p>
+                      {member.profiles?.full_name && (
+                        <p className="text-xs text-gray-500">{member.profiles.full_name}</p>
+                      )}
+                    </div>
                   </div>
                   
-                  <div>
-                    <p className="text-sm font-medium">
-                      {member.profiles?.username || 'Unknown'}
-                      {member.is_admin && <span className="ml-1 text-xs text-blue-500">(Admin)</span>}
-                    </p>
-                    {member.profiles?.full_name && (
-                      <p className="text-xs text-gray-500">{member.profiles.full_name}</p>
-                    )}
-                  </div>
+                  {/* Remove member button (only for admins and not for current user) */}
+                  {isAdmin && currentUser && member.user_id !== currentUser.id && (
+                    <button
+                      onClick={() => setMemberToRemove(member.user_id)}
+                      className="text-xs text-red-500 hover:text-red-700"
+                      title="Remove from group"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

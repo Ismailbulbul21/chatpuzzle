@@ -14,11 +14,29 @@ const CreateGroup = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [currentUser, setCurrentUser] = useState(null)
+  const [detailedError, setDetailedError] = useState(null)
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setCurrentUser(user)
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        
+        if (userError) {
+          console.error('Error fetching user:', userError)
+          setError('Error fetching user authentication details')
+          return
+        }
+        
+        if (!user) {
+          setError('No authenticated user found')
+          return
+        }
+        
+        setCurrentUser(user)
+      } catch (err) {
+        console.error('Exception in getUser:', err)
+        setError('Failed to get user information')
+      }
     }
     getUser()
   }, [])
@@ -95,11 +113,25 @@ const CreateGroup = () => {
       return
     }
 
+    if (!currentUser) {
+      setError('You must be logged in to create a group')
+      return
+    }
+
     setLoading(true)
     setError(null)
+    setDetailedError(null)
 
     try {
-      // Create the group
+      // Step 1: Create the group
+      console.log('Creating group with:', { 
+        name: groupName, 
+        description: groupDescription,
+        created_by: currentUser.id,
+        min_correct_answers: minCorrectAnswers,
+        total_questions: questions.length
+      })
+      
       const { data: groupData, error: groupError } = await supabase
         .from('groups')
         .insert({
@@ -112,9 +144,22 @@ const CreateGroup = () => {
         .select()
         .single()
 
-      if (groupError) throw groupError
+      if (groupError) {
+        console.error('Error creating group:', groupError)
+        setDetailedError(`Group creation error: ${groupError.message}`)
+        throw groupError
+      }
+      
+      if (!groupData || !groupData.id) {
+        const noIdError = new Error('Created group has no ID')
+        console.error(noIdError)
+        setDetailedError('Group was created but no ID was returned')
+        throw noIdError
+      }
+      
+      console.log('Group created successfully with ID:', groupData.id)
 
-      // Add current user as admin
+      // Step 2: Add current user as admin
       const { error: memberError } = await supabase
         .from('group_members')
         .insert({
@@ -123,9 +168,15 @@ const CreateGroup = () => {
           is_admin: true
         })
 
-      if (memberError) throw memberError
+      if (memberError) {
+        console.error('Error adding member:', memberError)
+        setDetailedError(`Member creation error: ${memberError.message}`)
+        throw memberError
+      }
+      
+      console.log('User added as admin successfully')
 
-      // Save questions
+      // Step 3: Save questions
       const questionsToSave = questions.map(q => ({
         group_id: groupData.id,
         question: q.question,
@@ -133,12 +184,20 @@ const CreateGroup = () => {
         correct_answer: q.correctAnswer,
         is_active: true
       }))
+      
+      console.log('Saving puzzles:', questionsToSave)
 
       const { error: questionError } = await supabase
         .from('group_puzzles')
         .insert(questionsToSave)
 
-      if (questionError) throw questionError
+      if (questionError) {
+        console.error('Error creating puzzles:', questionError)
+        setDetailedError(`Puzzle creation error: ${questionError.message}`)
+        throw questionError
+      }
+      
+      console.log('Questions saved successfully')
 
       // Redirect to group chat
       navigate(`/chat/${groupData.id}`)
@@ -158,6 +217,18 @@ const CreateGroup = () => {
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             {error}
+          </div>
+        )}
+        
+        {detailedError && (
+          <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded mb-4 text-sm font-mono">
+            {detailedError}
+          </div>
+        )}
+        
+        {!currentUser && (
+          <div className="bg-orange-100 border border-orange-400 text-orange-800 px-4 py-3 rounded mb-4">
+            User authentication required. Please log in again if you're seeing this message.
           </div>
         )}
         

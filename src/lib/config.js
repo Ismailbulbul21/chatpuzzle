@@ -12,7 +12,23 @@ export const OPEN_ROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completion
 export const DEFAULT_MODEL = 'google/gemini-2.5-pro-exp-03-25:free';
 
 // Puzzle categories
-export const PUZZLE_CATEGORIES = ['history', 'poetry', 'food', 'travel', 'humor'];
+export const PUZZLE_CATEGORIES = [
+    'history',
+    'poetry',
+    'food',
+    'travel',
+    'humor',
+    'sports',
+    'technology',
+    'music',
+    'culture',
+    'science',
+    'art',
+    'geography',
+    'traditions',
+    'literature',
+    'nature'
+];
 
 // Number of puzzles to generate
-export const DEFAULT_PUZZLE_COUNT = 5;
+export const DEFAULT_PUZZLE_COUNT = 8;
