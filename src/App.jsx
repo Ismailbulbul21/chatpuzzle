@@ -9,6 +9,9 @@ import Home from './pages/Home'
 import Profile from './pages/Profile'
 import Puzzles from './pages/Puzzles'
 import GroupChat from './pages/GroupChat'
+import GroupsList from './pages/GroupsList'
+import CreateGroup from './pages/CreateGroup'
+import JoinGroup from './pages/JoinGroup'
 
 const App = () => {
   const [session, setSession] = useState(null)
@@ -45,6 +48,9 @@ const App = () => {
         <Route path="/register" element={!session ? <Register /> : <Navigate to="/" />} />
         <Route path="/profile" element={session ? <Profile /> : <Navigate to="/login" />} />
         <Route path="/puzzles" element={session ? <Puzzles /> : <Navigate to="/login" />} />
+        <Route path="/groups" element={session ? <GroupsList /> : <Navigate to="/login" />} />
+        <Route path="/create-group" element={session ? <CreateGroup /> : <Navigate to="/login" />} />
+        <Route path="/join-group/:groupId" element={session ? <JoinGroup /> : <Navigate to="/login" />} />
         <Route path="/chat/:groupId" element={session ? <GroupChat /> : <Navigate to="/login" />} />
       </Routes>
     </Router>

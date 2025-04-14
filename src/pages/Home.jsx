@@ -9,10 +9,6 @@ const Home = () => {
   const [groups, setGroups] = useState([])
   const [user, setUser] = useState(null)
   const [error, setError] = useState(null)
-  const [creatingGroup, setCreatingGroup] = useState(false)
-  const [newGroupName, setNewGroupName] = useState('')
-  const [newGroupDescription, setNewGroupDescription] = useState('')
-  const [showCreateForm, setShowCreateForm] = useState(false)
 
   useEffect(() => {
     const fetchUserAndGroups = async () => {
@@ -65,61 +61,6 @@ const Home = () => {
     fetchUserAndGroups()
   }, [navigate])
   
-  const handleCreateGroup = async (e) => {
-    e.preventDefault()
-    
-    if (!newGroupName.trim()) return
-    
-    setCreatingGroup(true)
-    
-    try {
-      // Create the group
-      const { data: groupData, error: groupError } = await supabase
-        .from('groups')
-        .insert({
-          name: newGroupName.trim(),
-          description: newGroupDescription.trim(),
-          created_by: user.id,
-          last_message_at: new Date().toISOString(),
-          is_active: true
-        })
-        .select()
-        .single()
-      
-      if (groupError) throw groupError
-      
-      // Add the user as a member and admin
-      const { error: memberError } = await supabase
-        .from('group_members')
-        .insert({
-          group_id: groupData.id,
-          user_id: user.id,
-          is_admin: true
-        })
-      
-      if (memberError) throw memberError
-      
-      // Reset form and update UI
-      setNewGroupName('')
-      setNewGroupDescription('')
-      setShowCreateForm(false)
-      
-      // Add the new group to the list
-      setGroups(prev => [{
-        ...groupData,
-        is_admin: true
-      }, ...prev])
-      
-      // Navigate to the new group
-      navigate(`/chat/${groupData.id}`)
-    } catch (error) {
-      console.error('Error creating group:', error)
-      setError('Error creating the group. Please try again.')
-    } finally {
-      setCreatingGroup(false)
-    }
-  }
-  
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A'
     
@@ -155,15 +96,27 @@ const Home = () => {
       <div className="container mx-auto px-4 py-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold">Kooxahaaga</h1>
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            Koox Cusub
-          </button>
+          <div className="flex space-x-3">
+            <button
+              onClick={() => navigate('/groups')}
+              className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded flex items-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M9 9a2 2 0 114 0 2 2 0 01-4 0z" />
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a4 4 0 00-3.446 6.032l-2.261 2.26a1 1 0 101.414 1.415l2.261-2.261A4 4 0 1011 5z" clipRule="evenodd" />
+              </svg>
+              Radi Kooxo
+            </button>
+            <button
+              onClick={() => navigate('/create-group')}
+              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+              Koox Cusub
+            </button>
+          </div>
         </div>
         
         {error && (
@@ -172,74 +125,34 @@ const Home = () => {
           </div>
         )}
         
-        {showCreateForm && (
-          <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-            <h2 className="text-lg font-semibold mb-4">Abuur Koox Cusub</h2>
-            <form onSubmit={handleCreateGroup}>
-              <div className="mb-4">
-                <label htmlFor="groupName" className="block text-sm font-medium text-gray-700 mb-1">
-                  Magaca Kooxda
-                </label>
-                <input
-                  type="text"
-                  id="groupName"
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  className="w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              
-              <div className="mb-4">
-                <label htmlFor="groupDescription" className="block text-sm font-medium text-gray-700 mb-1">
-                  Sharaxaad
-                </label>
-                <textarea
-                  id="groupDescription"
-                  value={newGroupDescription}
-                  onChange={(e) => setNewGroupDescription(e.target.value)}
-                  className="w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  rows="3"
-                />
-              </div>
-              
-              <div className="flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-                >
-                  Ka noqo
-                </button>
-                <button
-                  type="submit"
-                  disabled={creatingGroup || !newGroupName.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600 disabled:opacity-50"
-                >
-                  {creatingGroup ? 'La abuurayaa...' : 'Abuur Kooxda'}
-                </button>
-              </div>
-            </form>
+        {groups.length === 0 && (
+          <div className="text-center py-12 bg-gray-50 rounded-lg">
+            <h2 className="text-xl font-semibold mb-4">Wali kuma jirtid koox!</h2>
+            <p className="mb-6 text-gray-600">Waxaad isku dayi kartaa inaad:</p>
+            <div className="flex flex-col space-y-4 items-center">
+              <button
+                onClick={() => navigate('/groups')}
+                className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-md font-medium"
+              >
+                Raadi kooxo cusub oo aad ku biiri kartid
+              </button>
+              <button
+                onClick={() => navigate('/create-group')}
+                className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-md font-medium"
+              >
+                Abuur koox cusub
+              </button>
+              <button
+                onClick={() => navigate('/puzzles')}
+                className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-md font-medium"
+              >
+                Qaado puzzle quiz
+              </button>
+            </div>
           </div>
         )}
         
-        {groups.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-            </svg>
-            <h2 className="text-xl font-semibold mb-2">Wax koox ah kuma jirtid weli</h2>
-            <p className="text-gray-600 mb-4">
-              Waxaad ku bilaabi kartaa kulan abuurista koox cusub ama ku biir mid jira.
-            </p>
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-            >
-              Abuur Koox Cusub
-            </button>
-          </div>
-        ) : (
+        {groups.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {groups.map((group) => (
               <Link
@@ -260,11 +173,8 @@ const Home = () => {
                   <p className="text-gray-600 mt-2 text-sm line-clamp-2">{group.description}</p>
                 )}
                 
-                <div className="mt-4 text-xs text-gray-500">
-                  <div className="flex justify-between">
-                    <span>Wakhti u dambeeyay: {formatDate(group.last_message_at)}</span>
-                    <span>La sameeyay: {formatDate(group.created_at)}</span>
-                  </div>
+                <div className="flex justify-between items-center mt-4 text-xs text-gray-500">
+                  <span>Updated: {formatDate(group.last_message_at)}</span>
                 </div>
               </Link>
             ))}
