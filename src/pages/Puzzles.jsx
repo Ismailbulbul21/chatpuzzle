@@ -1,236 +1,345 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { generateQuizQuestions } from '../lib/geminiService'
-import { PUZZLE_CATEGORIES, DEFAULT_PUZZLE_COUNT } from '../lib/config'
 import Layout from '../components/Layout'
+import InterestSelector from '../components/InterestSelector'
+import { getAllOptions } from '../lib/staticTags'
 
 const Puzzles = () => {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [puzzles, setPuzzles] = useState([])
-  const [currentPuzzleIndex, setCurrentPuzzleIndex] = useState(0)
-  const [responses, setResponses] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
-  const [source, setSource] = useState('database') // 'database' or 'api'
-  const [aiGenerating, setAiGenerating] = useState(false)
-  const [seenPuzzleIds, setSeenPuzzleIds] = useState([])
+  const [currentUser, setCurrentUser] = useState(null)
+  const [userInterests, setUserInterests] = useState([])
+  const [step, setStep] = useState('tags') // 'tags' or 'confirm'
   
   useEffect(() => {
-    const fetchPuzzles = async () => {
+    const fetchUserData = async () => {
       try {
         setLoading(true)
         
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) throw new Error('User not authenticated')
+        // Get the authenticated user
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
         
-        // Fetch previously seen puzzles to avoid repetition
-        const { data: seenResponses, error: seenError } = await supabase
-          .from('puzzle_responses')
-          .select('puzzle_id')
+        if (userError) {
+          console.error('User auth error:', userError)
+          throw userError
+        }
+        
+        if (!user) {
+          navigate('/login')
+          return
+        }
+        
+        setCurrentUser(user)
+        
+        // Get any existing user tags
+        const { data: userTags, error: interestsError } = await supabase
+          .from('user_static_tags')
+          .select('tag_id')
           .eq('user_id', user.id)
         
-        if (seenError) throw seenError
-        
-        // Extract IDs of seen puzzles
-        const seenIds = seenResponses?.map(r => r.puzzle_id) || []
-        setSeenPuzzleIds(seenIds)
-        
-        // First try to fetch AI-generated questions using Gemini API
-        let apiError
-        try {
-          setAiGenerating(true)
-          console.log("Attempting to generate questions with Gemini API");
-          const generatedQuestions = await generateQuizQuestions(PUZZLE_CATEGORIES, DEFAULT_PUZZLE_COUNT)
-          
-          if (generatedQuestions && generatedQuestions.length > 0) {
-            console.log("Successfully generated questions:", generatedQuestions.length);
-            // Add temporary IDs to the AI-generated questions
-            const questionsWithIds = generatedQuestions.map((q, index) => ({
-              ...q,
-              id: `ai-${index}`,
-              source: 'api'
-            }))
-            
-            setPuzzles(questionsWithIds)
-            setSource('api')
-            setLoading(false)
-            setAiGenerating(false)
-            return
-          } else {
-            console.warn("Generated questions array is empty");
-          }
-        } catch (error) {
-          apiError = error
-          console.error('Error generating questions from API:', apiError);
-        } finally {
-          setAiGenerating(false)
-        }
-        
-        // Fallback: fetch questions from database if API fails
-        const { data, error } = await supabase
-          .from('puzzles')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50)  // Get more questions than needed to filter out seen ones
-        
-        if (error) throw error
-        
-        if (data && data.length > 0) {
-          // Filter out puzzles the user has already seen
-          const unseenPuzzles = data.filter(puzzle => !seenIds.includes(puzzle.id))
-          
-          // If we have enough unseen puzzles, use them
-          if (unseenPuzzles.length >= DEFAULT_PUZZLE_COUNT) {
-            // Shuffle and pick a random subset
-            const shuffled = [...unseenPuzzles].sort(() => 0.5 - Math.random())
-            setPuzzles(shuffled.slice(0, DEFAULT_PUZZLE_COUNT))
-          } else {
-            // If not enough unseen puzzles, use a mix of seen and unseen
-            // but prioritize unseen ones
-            const shuffledAll = [...data].sort(() => 0.5 - Math.random())
-            setPuzzles(shuffledAll.slice(0, DEFAULT_PUZZLE_COUNT))
-          }
-          
-          setSource('database')
-        } else {
-          throw new Error('No puzzles available in the database')
+        if (interestsError) {
+          console.error('Error fetching user tags:', interestsError)
+        } else if (userTags && userTags.length > 0) {
+          // Extract just the tag IDs
+          setUserInterests(userTags.map(tag => tag.tag_id))
         }
       } catch (error) {
-        console.error('Error fetching puzzles:', error)
-        setError('Khalad ayaa dhacay markii lagu waday inaan keeno su\'aalaha puzzleka')
+        console.error('Error fetching user data:', error)
+        setError('Error loading user data. Please try again.')
       } finally {
         setLoading(false)
       }
     }
     
-    fetchPuzzles()
-  }, [])
-  
-  const handleResponseChange = (puzzle_id, response) => {
-    setResponses({
-      ...responses,
-      [puzzle_id]: response
-    })
-  }
-  
-  const handleNext = () => {
-    const currentPuzzle = puzzles[currentPuzzleIndex]
-    
-    // Validate that the user has answered the current question
-    if (!responses[currentPuzzle.id]) {
-      setError('Fadlan ka jawaab su\'aasha ka hor inta aadan gelin midka xiga')
+    fetchUserData()
+  }, [navigate])
+
+  const handleInterestsSave = async (selectedInterests) => {
+    if (!currentUser) {
+      setError('You must be logged in to save interests')
       return
     }
     
-    setError(null)
-    setCurrentPuzzleIndex(prev => prev + 1)
+    if (selectedInterests.length === 0) {
+      setError('Please select at least one interest')
+      return
+    }
+    
+    setUserInterests(selectedInterests)
+    setStep('confirm')
+  }
+  
+  const resetSelections = () => {
+    setUserInterests([])
+    setStep('tags')
   }
   
   const handleSubmit = async () => {
-    const currentPuzzle = puzzles[currentPuzzleIndex]
-    
-    // Validate that the user has answered the current question
-    if (!responses[currentPuzzle.id]) {
-      setError('Fadlan ka jawaab su\'aal kasta')
+    if (!currentUser || userInterests.length === 0) {
+      setError('Please select your interests first')
       return
     }
     
-    setError(null)
     setSubmitting(true)
+    setError(null)
     
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not authenticated')
+      console.log('Submitting interests:', userInterests)
       
-      // If questions were from API, first save them to database
-      if (source === 'api') {
-        // Convert AI-generated questions to database format
-        const questionsToSave = puzzles.map(puzzle => ({
-          category: puzzle.category,
-          question: puzzle.question,
-          options: puzzle.options, // Already in correct format
-          is_active: true
-        }))
+      // First delete existing tags
+      const { error: deleteError } = await supabase
+        .from('user_static_tags')
+        .delete()
+        .eq('user_id', currentUser.id)
         
-        // Save questions to database
-        try {
-          const { error: saveError } = await supabase
-            .from('puzzles')
-            .insert(questionsToSave)
-          
-          if (saveError) {
-            console.error('Error saving AI-generated questions:', saveError)
-          }
-        } catch (e) {
-          console.error('Exception saving AI questions:', e)
-        }
+      if (deleteError) {
+        console.error('Error deleting existing tags:', deleteError)
+        // Continue anyway - the insert will handle conflicts
       }
       
-      // Save user responses
-      const responsePromises = Object.entries(responses).map(([puzzle_id, response]) => {
-        // For AI-generated questions, create a new UUID instead of using null
-        const finalPuzzleId = puzzle_id.startsWith('ai-')
-          ? null  // Let the database generate an ID
-          : puzzle_id;
-          
-        return supabase
-          .from('puzzle_responses')
-          .insert({  // Use insert instead of upsert for AI-generated puzzle IDs
-            user_id: user.id,
-            puzzle_id: finalPuzzleId,
-            response,
-            response_vector: null
-          });
+      // Insert new tags
+      const tagsToInsert = userInterests.map(tagId => ({
+        user_id: currentUser.id,
+        tag_id: tagId
+      }))
+      
+      console.log('Inserting user tags:', tagsToInsert)
+      const { error: insertError } = await supabase
+        .from('user_static_tags')
+        .insert(tagsToInsert)
+        .select()
+      
+      if (insertError) {
+        console.error('Error inserting tags:', insertError)
+        throw new Error(`Failed to save your interests: ${insertError.message}`)
+      }
+      
+      console.log('Tags inserted, calling create_static_tag_group with params:', {
+        user_uuid: currentUser.id,
+        min_tag_matches: 1,
+        max_group_size: 6
       })
       
-      await Promise.all(responsePromises)
-      
-      // Still update last puzzle attempt timestamp for tracking
-      await supabase
-        .from('profiles')
-        .update({ last_puzzle_attempt: new Date().toISOString() })
-        .eq('id', user.id)
-      
-      // Call the matching function to create or join a group
-      const { data: groupData, error: groupError } = await supabase
-        .rpc('create_or_join_group', { 
-          user_uuid: user.id,
-          similarity_threshold: 0.6  // Use the new threshold value
+      // Create a new group based on static tags
+      const { data: groupId, error: groupError } = await supabase
+        .rpc('create_static_tag_group', { 
+          user_uuid: currentUser.id,
+          min_tag_matches: 1,
+          max_group_size: 6
         })
       
-      if (groupError) throw groupError
+      if (groupError) {
+        console.error('Group matching error:', groupError)
+        
+        if (groupError.message && groupError.message.includes('row-level security policy')) {
+          console.log('RLS policy error - using fallback method')
+          const fallbackGroupId = await createFallbackGroup(currentUser.id)
+          if (fallbackGroupId) {
+            console.log('Created fallback group due to RLS issue, navigating to chat:', fallbackGroupId)
+            resetSelections() // Reset selections after successful group creation
+            navigate(`/chat/${fallbackGroupId}`)
+            return
+          }
+        }
+        
+        if (groupError.message && groupError.message.includes('ambiguous')) {
+          console.error('Ambiguous column error detected')
+        }
+        
+        setError(`Group matching error: ${groupError.message}`)
+        
+        // Fall back to creating a new group if matching fails
+        const fallbackGroupId = await createFallbackGroup(currentUser.id)
+        if (fallbackGroupId) {
+          console.log('Created fallback group, navigating to chat:', fallbackGroupId)
+          resetSelections() // Reset selections after successful group creation
+          navigate(`/chat/${fallbackGroupId}`)
+        } else {
+          throw new Error('Failed to create fallback group')
+        }
+        return
+      }
       
-      // Navigate to group chat if a group was assigned
-      if (groupData) {
-        navigate(`/chat/${groupData}`)
+      if (groupId) {
+        console.log('Group assigned, navigating to chat:', groupId)
+        resetSelections() // Reset selections after successful group creation
+        navigate(`/chat/${groupId}`)
       } else {
-        navigate('/')
+        console.log('No group assigned, creating fallback group')
+        const fallbackGroupId = await createFallbackGroup(currentUser.id)
+        if (fallbackGroupId) {
+          resetSelections() // Reset selections after successful group creation
+          navigate(`/chat/${fallbackGroupId}`)
+        } else {
+          throw new Error('Failed to create fallback group')
+        }
       }
     } catch (error) {
-      console.error('Error submitting responses:', error)
-      setError('Khalad ayaa dhacay markii jawaabaha la gudbinayay')
+      console.error('Error submitting interests:', error)
+      setError(error.message || 'An error occurred while submitting your interests. Please try again.')
     } finally {
       setSubmitting(false)
     }
   }
   
-  if (loading || aiGenerating) {
+  // Helper function to create a fallback group when matching fails
+  const createFallbackGroup = async (userId) => {
+    console.log('Attempting to create a new group as fallback')
+    try {
+      const groupName = `Interest Group ${new Date().toLocaleDateString()}`
+      console.log('Creating group with name:', groupName)
+      
+      // Create a new group
+      const { data: newGroup, error: newGroupError } = await supabase
+        .from('groups')
+        .insert({
+          name: groupName,
+          description: 'Group created based on your interests',
+          created_by: userId,
+          min_correct_answers: 1,
+          total_questions: 2,
+          is_active: true,
+          last_message_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+      
+      if (newGroupError) {
+        console.error('Error creating new group:', newGroupError)
+        throw newGroupError
+      }
+      
+      if (!newGroup) {
+        console.error('No group data returned after creation')
+        throw new Error('Failed to create group - no data returned')
+      }
+      
+      console.log('Successfully created group:', newGroup.id)
+      
+      // Add user to the group (must be done before adding tags to satisfy RLS)
+      const { error: memberError } = await supabase
+        .from('group_members')
+        .insert({
+          group_id: newGroup.id,
+          user_id: userId,
+          is_admin: true,
+          joined_by_quiz: true
+        })
+      
+      if (memberError) {
+        console.error('Error adding user to group:', memberError)
+        throw memberError
+      }
+      
+      console.log('Successfully added user to group')
+      
+      // Try to find other users with similar interests
+      if (userInterests.length > 0) {
+        console.log('Finding other users with similar interests')
+        const { data: otherUsers, error: otherUsersError } = await supabase
+          .from('user_static_tags')
+          .select('user_id')
+          .in('tag_id', userInterests)
+          .neq('user_id', userId)
+          .limit(5)
+          .distinct()
+        
+        if (!otherUsersError && otherUsers && otherUsers.length > 0) {
+          console.log('Found other users with similar interests:', otherUsers.length)
+          
+          // Add these users to the group
+          const usersToAdd = otherUsers.slice(0, 5).map(user => ({
+            group_id: newGroup.id,
+            user_id: user.user_id,
+            is_admin: false,
+            joined_by_quiz: true
+          }))
+          
+          const { error: addUsersError } = await supabase
+            .from('group_members')
+            .insert(usersToAdd)
+          
+          if (addUsersError) {
+            console.error('Error adding other users to group:', addUsersError)
+            // Continue anyway - not critical
+          } else {
+            console.log('Added other users to group')
+          }
+        }
+      }
+      
+      // Now try to add the user's tags to the group
+      if (userInterests.length > 0) {
+        const tagsToInsert = userInterests.map(tagId => ({
+          group_id: newGroup.id,
+          tag_id: tagId
+        }))
+        
+        const { error: tagError } = await supabase
+          .from('group_tags')
+          .insert(tagsToInsert)
+        
+        if (tagError) {
+          console.error('Error adding tags to group:', tagError)
+          // Continue anyway - this isn't critical
+        } else {
+          console.log('Added user tags to group')
+        }
+      }
+      
+      // Create default questions for the group
+      const defaultQuestions = [
+        {
+          group_id: newGroup.id,
+          question: 'Do you want to join this group?',
+          options: JSON.stringify(['Yes, I do', 'No, I don\'t', 'Maybe later', 'I\'m not sure']),
+          correct_answer: 0,
+          is_active: true
+        },
+        {
+          group_id: newGroup.id,
+          question: 'What are you interested in discussing in this group?',
+          options: JSON.stringify(['General topics', 'Specific interests', 'Meeting new people', 'Learning together']),
+          correct_answer: 0,
+          is_active: true
+        }
+      ]
+      
+      const { error: questionsError } = await supabase
+        .from('group_puzzles')
+        .insert(defaultQuestions)
+      
+      if (questionsError) {
+        console.error('Error adding default questions:', questionsError)
+        // Continue anyway - not critical for group functionality
+      } else {
+        console.log('Successfully saved default questions')
+      }
+      
+      console.log('Successfully created fallback group:', newGroup.id)
+      return newGroup.id
+    } catch (fallbackError) {
+      console.error('Failed to create fallback group:', fallbackError)
+      setError('Unable to create a group. Please try again later.')
+      return null
+    }
+  }
+  
+  if (loading) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-          {aiGenerating && (
-            <p className="text-gray-600">Waxaan soo abuurayaa su'aalo cusub...</p>
-          )}
+          <p className="text-gray-600">Loading...</p>
         </div>
       </Layout>
     )
   }
   
-  if (error && puzzles.length === 0) {
+  if (error && step === 'tags' && !currentUser) {
     return (
       <Layout>
         <div className="container mx-auto px-4 py-8">
@@ -241,117 +350,81 @@ const Puzzles = () => {
             onClick={() => navigate('/')}
             className="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
           >
-            Ku noqo Bogga Hore
+            Return to Home
           </button>
         </div>
       </Layout>
     )
   }
   
-  const currentPuzzle = puzzles[currentPuzzleIndex]
-  const isLastPuzzle = currentPuzzleIndex === puzzles.length - 1
-  
   return (
     <Layout>
-      <div className="container mx-auto px-4 py-8">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="mb-6 flex justify-between items-center">
-            <h1 className="text-2xl font-bold">Puzzle {currentPuzzleIndex + 1}/{puzzles.length}</h1>
-            <span className="text-sm text-gray-500">Qeybta: {currentPuzzle?.category}</span>
-            {source === 'api' && (
-              <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">AI-generated</span>
-            )}
-          </div>
-          
-          <div className="mb-8">
-            <h2 className="text-xl mb-4">{currentPuzzle?.question}</h2>
-            
-            {currentPuzzle?.options ? (
-              // Multiple choice question
-              <div className="space-y-2">
-                {(() => {
-                  try {
-                    const parsedOptions = typeof currentPuzzle.options === 'string' 
-                      ? JSON.parse(currentPuzzle.options) 
-                      : currentPuzzle.options;
-                      
-                    return Array.isArray(parsedOptions) ? parsedOptions.map((option, index) => (
-                      <div key={index} className="flex items-center">
-                        <input
-                          type="radio"
-                          id={`option-${index}`}
-                          name={`puzzle-${currentPuzzle.id}`}
-                          value={option}
-                          checked={responses[currentPuzzle.id] === option}
-                          onChange={() => handleResponseChange(currentPuzzle.id, option)}
-                          className="mr-2"
-                        />
-                        <label htmlFor={`option-${index}`}>{option}</label>
-                      </div>
-                    )) : (
-                      <div className="text-red-500">
-                        Invalid options format. Please contact administrator.
-                      </div>
-                    );
-                  } catch (error) {
-                    console.error("Error parsing options:", error);
-                    // Fallback to text input if JSON parsing fails
-                    return (
-                      <textarea
-                        value={responses[currentPuzzle.id] || ''}
-                        onChange={(e) => handleResponseChange(currentPuzzle.id, e.target.value)}
-                        className="w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
-                        rows={4}
-                        placeholder="Halkaan ku qor jawaabtaada..."
-                      />
-                    );
-                  }
-                })()}
-              </div>
-            ) : (
-              // Open-ended question
-              <textarea
-                value={responses[currentPuzzle.id] || ''}
-                onChange={(e) => handleResponseChange(currentPuzzle.id, e.target.value)}
-                className="w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
-                rows={4}
-                placeholder="Halkaan ku qor jawaabtaada..."
-              />
-            )}
-          </div>
-          
-          {error && (
-            <div className="mb-4 bg-red-50 p-4 rounded-md">
-              <p className="text-red-700">{error}</p>
-            </div>
-          )}
-          
-          <div className="flex justify-between">
-            <button
-              onClick={() => navigate('/')}
-              className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {error && (
+          <div className="bg-red-50 p-4 rounded-md mb-6">
+            <p className="text-red-700">{error}</p>
+            <button 
+              onClick={() => setError(null)}
+              className="text-sm text-red-600 hover:text-red-800 mt-2"
             >
-              Ka bax
+              Dismiss
             </button>
+          </div>
+        )}
+        
+        {step === 'tags' && (
+          <div>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h1 className="text-2xl font-bold mb-3">Find Your Group</h1>
+              <p className="text-gray-600 mb-4">
+                Select your interests to be matched with like-minded people. We'll create a group chat with people who share similar interests.
+              </p>
+            </div>
             
-            {isLastPuzzle ? (
+            <InterestSelector 
+              initialInterests={userInterests} 
+              onSave={handleInterestsSave} 
+            />
+          </div>
+        )}
+        
+        {step === 'confirm' && (
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h1 className="text-2xl font-bold mb-3">Confirm Your Interests</h1>
+            
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold mb-2">You selected {userInterests.length} interests:</h2>
+              <div className="flex flex-wrap gap-2">
+                {userInterests.map(tagId => {
+                  const allOptions = getAllOptions();
+                  const option = allOptions.find(opt => opt.id === tagId);
+                  return option ? (
+                    <span key={tagId} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                      {option.name}
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            </div>
+            
+            <div className="flex justify-between">
+              <button
+                onClick={() => setStep('tags')}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Edit Interests
+              </button>
+              
               <button
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
+                className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50"
               >
-                {submitting ? 'Waa la gudbinayaa...' : 'Gudbii jawaabaha'}
+                {submitting ? 'Finding your group...' : 'Find My Group'}
               </button>
-            ) : (
-              <button
-                onClick={handleNext}
-                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-              >
-                Kan xiga
-              </button>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </Layout>
   )

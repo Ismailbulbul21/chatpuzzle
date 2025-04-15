@@ -476,21 +476,72 @@ const GroupChat = () => {
     setShowDeleteGroupModal(false)
     
     try {
-      // First delete all group members
-      const { error: memberError } = await supabase
-        .from('group_members')
+      // First get call session IDs
+      const { data: callSessions, error: callSessionsQueryError } = await supabase
+        .from('call_sessions')
+        .select('id')
+        .eq('group_id', groupId);
+        
+      if (!callSessionsQueryError && callSessions && callSessions.length > 0) {
+        // Extract call IDs
+        const callIds = callSessions.map(session => session.id);
+        
+        // Delete call participants for these calls
+        const { error: callParticipantsError } = await supabase
+          .from('call_participants')
+          .delete()
+          .in('call_id', callIds);
+          
+        if (callParticipantsError) {
+          console.error('Error deleting call participants:', callParticipantsError);
+        }
+      }
+      
+      // Delete call sessions
+      const { error: callSessionsError } = await supabase
+        .from('call_sessions')
         .delete()
-        .eq('group_id', groupId)
+        .eq('group_id', groupId);
       
-      if (memberError) throw memberError
+      if (callSessionsError) {
+        console.error('Error deleting call sessions:', callSessionsError);
+      }
       
-      // Then delete all messages
+      // Delete all answers to questions first (due to foreign key constraint)
+      const { error: answersError } = await supabase
+        .from('group_puzzle_answers')
+        .delete()
+        .eq('group_id', groupId);
+        
+      if (answersError) {
+        console.error('Error deleting group answers:', answersError);
+      }
+      
+      // Then delete questions
+      const { error: questionsError } = await supabase
+        .from('group_puzzles')
+        .delete()
+        .eq('group_id', groupId);
+        
+      if (questionsError) {
+        console.error('Error deleting group questions:', questionsError);
+      }
+      
+      // Delete all messages
       const { error: msgError } = await supabase
         .from('messages')
         .delete()
         .eq('group_id', groupId)
       
       if (msgError) throw msgError
+      
+      // Then delete all group members
+      const { error: memberError } = await supabase
+        .from('group_members')
+        .delete()
+        .eq('group_id', groupId)
+      
+      if (memberError) throw memberError
       
       // Finally delete the group itself
       const { error: groupError } = await supabase

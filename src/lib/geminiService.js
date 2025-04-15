@@ -29,34 +29,28 @@ export const generateQuizQuestions = async (
 
         // Choose a random subset of categories to ensure variety
         const shuffledCategories = [...categories].sort(() => 0.5 - Math.random());
-        const selectedCategories = shuffledCategories.slice(0, Math.min(6, categories.length));
+        const selectedCategories = shuffledCategories.slice(0, Math.min(count, categories.length));
 
-        const prompt = `Generate ${count} unique, creative, and engaging quiz questions in Somali language about the following categories: ${selectedCategories.join(', ')}.
+        const prompt = `Generate ${count} unique, creative, and engaging MULTIPLE CHOICE quiz questions in Somali language.
 
 IMPORTANT INSTRUCTIONS:
-1. Make questions diverse and fun - avoid repetitive themes
-2. Include both factual and opinion-based questions
-3. Make questions culturally relevant to Somalia and East Africa
-4. Mix easy and challenging questions
-5. Include at least one question that encourages personal expression
-6. For multiple choice questions, make options thoughtful and occasionally humorous
-7. For open-ended questions, design them to reveal personality traits
+1. ONLY create multiple choice questions with 4 options each
+2. DO NOT create any open-ended questions
+3. Select ${selectedCategories.length} different categories from this list: ${selectedCategories.join(', ')}
+4. Make sure each question is from a different category to maximize diversity
+5. Make questions culturally relevant to Somalia and East Africa
+6. Mix easy and challenging questions
+7. Make options thoughtful and occasionally humorous
+8. Questions should be factual with a clear correct answer
+9. Never repeat question patterns or formats
 
-Each question should follow this format:
-1. For multiple choice questions (about 70% of questions):
+Each question MUST follow this exact format:
 {
   "category": "category name",
   "question": "The question text in Somali",
   "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
 }
-    
-2. For open-ended questions (about 30% of questions):
-{
-  "category": "category name",
-  "question": "The question text in Somali",
-  "options": null
-}
-    
+
 Return ONLY valid JSON array of questions without any additional text.`;
 
         console.log(`Making request to OpenRouter API with model ${DEFAULT_MODEL}`);
@@ -79,7 +73,7 @@ Return ONLY valid JSON array of questions without any additional text.`;
                         }
                     ],
                     max_tokens: 4096,
-                    temperature: 0.8
+                    temperature: 0.9
                 })
             });
 
@@ -108,62 +102,93 @@ Return ONLY valid JSON array of questions without any additional text.`;
 
             try {
                 const questions = JSON.parse(jsonMatch[0]);
-                return questions;
+
+                // Verify all questions are multiple choice
+                const validQuestions = questions.filter(q =>
+                    q.options && Array.isArray(q.options) && q.options.length === 4
+                );
+
+                if (validQuestions.length < questions.length) {
+                    console.warn(`Filtered out ${questions.length - validQuestions.length} non-multiple choice questions`);
+                }
+
+                return validQuestions.length > 0 ? validQuestions : generateFallbackQuestions(count);
             } catch (parseError) {
                 console.error('JSON parsing error:', parseError, 'for text:', jsonMatch[0]);
                 throw new Error('Failed to parse API response as JSON');
             }
         } catch (apiError) {
             console.error('API request failed, using fallback questions:', apiError);
-            // Fallback to sample questions if API call fails
-            const sampleQuestions = [
-                {
-                    category: "history",
-                    question: "Goorma ayaa la aasaasay Soomaaliya?",
-                    options: ["1960", "1950", "1970", "1980"]
-                },
-                {
-                    category: "poetry",
-                    question: "Ma sheegi kartaa nooca gabayga caanka ah ee Soomaalida?",
-                    options: null
-                },
-                {
-                    category: "food",
-                    question: "Canjeero waxaa inta badan lagu cunaa?",
-                    options: ["Quraac", "Casho", "Qado", "Dhamaan wakhtiyada"]
-                },
-                {
-                    category: "travel",
-                    question: "Magaalada ugu weyn Soomaaliya waa?",
-                    options: ["Muqdisho", "Hargeysa", "Kismaayo", "Boosaaso"]
-                },
-                {
-                    category: "humor",
-                    question: "Sheeko-xariirooyin Soomaaliyeed maxay inta badan ka hadlaan?",
-                    options: null
-                },
-                {
-                    category: "sports",
-                    question: "Ciyaarta ugu caansan Soomaaliya waa?",
-                    options: ["Kubadda Cagta", "Orodka", "Kubadda Kolayga", "Dabaasha"]
-                },
-                {
-                    category: "technology",
-                    question: "Shirkadda telefoonada gacanta ee ugu caansan Soomaaliya?",
-                    options: ["Hormuud", "Somtel", "Telesom", "Golis"]
-                },
-                {
-                    category: "culture",
-                    question: "Maxaa kuu muhiimsan dhaqanka Soomaalida?",
-                    options: null
-                }
-            ];
-
-            console.log("Generated fallback sample questions:", sampleQuestions.length);
-            return sampleQuestions;
+            return generateFallbackQuestions(count);
         }
     } catch (error) {
         console.error('Error generating quiz questions:', error);
         throw error;
     }
+};
+
+/**
+ * Generate fallback questions if the API fails
+ * @param {number} count - Number of questions to generate
+ * @returns {Array} Array of question objects
+ */
+const generateFallbackQuestions = (count) => {
+    const fallbackQuestions = [
+        {
+            category: "history",
+            question: "Goorma ayaa la aasaasay Soomaaliya?",
+            options: ["1960", "1950", "1970", "1980"]
+        },
+        {
+            category: "food",
+            question: "Canjeero waxaa inta badan lagu cunaa?",
+            options: ["Quraac", "Casho", "Qado", "Dhamaan wakhtiyada"]
+        },
+        {
+            category: "travel",
+            question: "Magaalada ugu weyn Soomaaliya waa?",
+            options: ["Muqdisho", "Hargeysa", "Kismaayo", "Boosaaso"]
+        },
+        {
+            category: "sports",
+            question: "Ciyaarta ugu caansan Soomaaliya waa?",
+            options: ["Kubadda Cagta", "Orodka", "Kubadda Kolayga", "Dabaasha"]
+        },
+        {
+            category: "technology",
+            question: "Shirkadda telefoonada gacanta ee ugu caansan Soomaaliya?",
+            options: ["Hormuud", "Somtel", "Telesom", "Golis"]
+        },
+        {
+            category: "music",
+            question: "Heesaha Soomaalida ugu badan waa kuwa?",
+            options: ["Jacayl", "Wadaniyad", "Farxad", "Murugada"]
+        },
+        {
+            category: "culture",
+            question: "Dharka Soomaalida dumarka caanka ah?",
+            options: ["Dirac", "Guntiino", "Garbasaar", "Dhammaan"]
+        },
+        {
+            category: "geography",
+            question: "Webiga ugu dheer Soomaaliya?",
+            options: ["Jubba", "Shabeelle", "Nugaal", "Darod"]
+        },
+        {
+            category: "science",
+            question: "Duufaanta ugu xooggan ee soo marta Soomaaliya waxay ka timaadaa?",
+            options: ["Badda Carabta", "Badda Cas", "Badda Hindiya", "Gacanka Cadmeed"]
+        },
+        {
+            category: "literature",
+            question: "Qoraaga ugu caansan Soomaalida?",
+            options: ["Nuruddin Farah", "Maxamed Daahir Afrax", "Cabdalla Xaaji", "Maxamed Ibrahim Warsame"]
+        }
+    ];
+
+    // Shuffle the questions to get random ones
+    const shuffled = [...fallbackQuestions].sort(() => 0.5 - Math.random());
+
+    // Return requested number of questions, or all if less than requested
+    return shuffled.slice(0, Math.min(count, fallbackQuestions.length));
 }; 
