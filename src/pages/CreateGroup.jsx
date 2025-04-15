@@ -148,7 +148,8 @@ const CreateGroup = () => {
           description: groupDescription,
           created_by: currentUser.id,
           min_correct_answers: minCorrectAnswers,
-          total_questions: questions.length
+          total_questions: questions.length,
+          is_interest_based: false
         })
         .select()
         .single()

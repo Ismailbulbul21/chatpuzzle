@@ -59,40 +59,11 @@ export const ensureGroupHasQuestions = async (groupId) => {
         return false;
     }
 
-    // If the group already has questions, no need to fix
-    if (questions && questions.length > 0) {
-        console.log(`Group ${groupId} already has ${questions.length} questions`);
-        return true;
-    }
-
-    // Create default questions for the group
-    const defaultQuestions = [
-        {
-            group_id: groupId,
-            question: 'Do you want to join this group?',
-            options: JSON.stringify(['Yes, I do', 'No, I don\'t', 'Maybe later', 'I\'m not sure']),
-            correct_answer: 0,
-            is_active: true
-        },
-        {
-            group_id: groupId,
-            question: 'What are you interested in discussing in this group?',
-            options: JSON.stringify(['General topics', 'Specific interests', 'Meeting new people', 'Learning together']),
-            correct_answer: 0,
-            is_active: true
-        }
-    ];
-
-    const { data, error } = await supabase
-        .from('group_puzzles')
-        .insert(defaultQuestions)
-        .select();
-
-    if (error) {
-        console.error('Error adding questions:', error);
+    // If the group has no questions, return false instead of adding default ones
+    if (!questions || questions.length === 0) {
+        console.log(`Group ${groupId} has no questions`);
         return false;
     }
 
-    console.log('Successfully added default questions to group:', groupId);
     return true;
 }; 

@@ -7,12 +7,13 @@ import GroupSearch from '../components/GroupSearch'
 const GroupsList = () => {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [groups, setGroups] = useState([])
+  const [groups, setGroups] = useState({ interestBased: [], custom: [] })
   const [userGroups, setUserGroups] = useState([])
   const [error, setError] = useState(null)
   const [currentUser, setCurrentUser] = useState(null)
-  const [deletingGroup, setDeletingGroup] = useState(null);
-  const [deleteError, setDeleteError] = useState(null);
+  const [deletingGroup, setDeletingGroup] = useState(null)
+  const [deleteError, setDeleteError] = useState(null)
+  const [activeTab, setActiveTab] = useState('all') // 'all', 'interest', 'custom'
 
   useEffect(() => {
     const fetchGroups = async () => {
@@ -50,7 +51,8 @@ const GroupsList = () => {
             min_correct_answers,
             total_questions,
             created_by,
-            members:group_members(count)
+            members:group_members(count),
+            is_interest_based
           `)
           .order('created_at', { ascending: false })
 
@@ -75,7 +77,7 @@ const GroupsList = () => {
           }, {})
         }
 
-        // Format the groups data
+        // Format and separate the groups data
         const formattedGroups = groupsData.map(group => ({
           ...group,
           memberCount: group.members[0].count,
@@ -85,7 +87,11 @@ const GroupsList = () => {
           isUserMember: userGroupIds.includes(group.id)
         }))
 
-        setGroups(formattedGroups)
+        // Separate groups by type
+        setGroups({
+          interestBased: formattedGroups.filter(g => g.is_interest_based === true),
+          custom: formattedGroups.filter(g => g.is_interest_based === false)
+        })
       } catch (error) {
         console.error('Error fetching groups:', error)
         setError('An error occurred while loading groups')
@@ -178,7 +184,11 @@ const GroupsList = () => {
       console.log(`Group ${groupId} deleted successfully`);
       
       // Update the UI by filtering out the deleted group
-      setGroups(prevGroups => prevGroups.filter(g => g.id !== groupId));
+      setGroups(prevGroups => ({
+        ...prevGroups,
+        interestBased: prevGroups.interestBased.filter(g => g.id !== groupId),
+        custom: prevGroups.custom.filter(g => g.id !== groupId)
+      }));
       
     } catch (error) {
       console.error('Error in delete process:', error);
@@ -187,6 +197,31 @@ const GroupsList = () => {
       setDeletingGroup(null);
     }
   };
+
+  const renderGroupCard = (group) => (
+    <div key={group.id} className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow">
+      <div className="flex justify-between items-start mb-2">
+        <h3 className="text-lg font-semibold text-gray-800">{group.name}</h3>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+          group.isUserMember ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+        }`}>
+          {group.isUserMember ? 'Member' : `${group.memberCount} members`}
+        </span>
+      </div>
+      <p className="text-gray-600 text-sm mb-3 line-clamp-2">{group.description || 'No description'}</p>
+      <div className="flex justify-between items-center">
+        <span className="text-xs text-gray-500">Created by {group.creatorName}</span>
+        {!group.isUserMember && (
+          <button
+            onClick={() => navigate(`/join-group/${group.id}`)}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-1 rounded-md text-sm transition-colors"
+          >
+            Join Group
+          </button>
+        )}
+      </div>
+    </div>
+  )
 
   if (loading) {
     return (
@@ -201,65 +236,42 @@ const GroupsList = () => {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold">Your Groups</h1>
-            <Link
-              to="/create-group"
-              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md"
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-gray-800">Custom Groups</h1>
+          <div className="space-x-3">
+            <button
+              onClick={() => navigate('/puzzles')}
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors"
             >
-              Create New Group
-            </Link>
+              Find Interest Match
+            </button>
+            <button
+              onClick={() => navigate('/create-group')}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors"
+            >
+              Create Group
+            </button>
           </div>
-          
-          {/* Joined Groups section */}
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          ) : error ? (
-            <div className="bg-red-100 p-4 rounded-md text-red-700 mb-4">
-              {error}
-            </div>
-          ) : groups.length === 0 ? (
-            <div className="bg-gray-50 rounded-lg p-8 text-center">
-              <h2 className="text-xl font-medium text-gray-700 mb-2">No Groups Yet</h2>
-              <p className="text-gray-500 mb-4">
-                You haven't joined any groups yet. Create a new group or find one to join!
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {groups.map(group => (
-                <div key={group.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-                  <div className="p-5">
-                    <h2 className="text-xl font-bold mb-2 truncate">{group.name}</h2>
-                    <p className="text-gray-600 mb-4 line-clamp-2">
-                      {group.description || 'No description provided'}
-                    </p>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">
-                        {group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}
-                      </span>
-                      <button
-                        onClick={() => navigate(`/chat/${group.id}`)}
-                        className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
-                      >
-                        Open Chat
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-        
-        {/* Group Search Section */}
-        <div className="mt-12">
-          <h2 className="text-xl font-bold mb-4">Find New Groups</h2>
-          <GroupSearch />
-        </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+
+        {groups.custom.length === 0 ? (
+          <div className="text-center py-12">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No custom groups available</h3>
+            <p className="text-gray-500">
+              Create your own group or find an interest match in the Puzzles section!
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {groups.custom.map(renderGroupCard)}
+          </div>
+        )}
       </div>
     </Layout>
   )

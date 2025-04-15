@@ -1,54 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { supabase, logDbOperation, ensureGroupHasQuestions } from '../lib/supabase'
+import { supabase, logDbOperation } from '../lib/supabase'
 import Layout from '../components/Layout'
-
-// Utility function to fix groups with no questions - can be called from browser console
-window.fixGroupWithNoQuestions = async (groupId) => {
-  if (!groupId) {
-    console.error('Please provide a group ID');
-    return;
-  }
-  
-  console.log('Fixing group with ID:', groupId);
-  
-  // Create default questions for the group
-  const defaultQuestions = [
-    {
-      group_id: groupId,
-      question: 'Do you want to join this group?',
-      options: JSON.stringify(['Yes, I do', 'No, I don\'t', 'Maybe later', 'I\'m not sure']),
-      correct_answer: 0,
-      is_active: true
-    },
-    {
-      group_id: groupId,
-      question: 'What are you interested in discussing in this group?',
-      options: JSON.stringify(['General topics', 'Specific interests', 'Meeting new people', 'Learning together']),
-      correct_answer: 0,
-      is_active: true
-    }
-  ];
-  
-  try {
-    const { data, error } = await supabase
-      .from('group_puzzles')
-      .insert(defaultQuestions)
-      .select();
-    
-    if (error) {
-      console.error('Error adding questions:', error);
-      return false;
-    }
-    
-    console.log('Successfully added questions:', data);
-    console.log('Please reload the page to see the questions');
-    return true;
-  } catch (err) {
-    console.error('Exception adding questions:', err);
-    return false;
-  }
-};
 
 const JoinGroup = () => {
   const { groupId } = useParams()
@@ -165,32 +118,7 @@ const JoinGroup = () => {
 
         if (!questionsData || questionsData.length === 0) {
           console.error('No questions found for group:', groupId);
-          
-          // Attempt to auto-fix by adding questions
-          setIsFixingGroup(true);
-          setError('This group has no questions. Attempting to fix automatically...');
-          
-          // Only allow auto-fix if user is member of at least one group (indicating they're a regular user)
-          const { data: userGroups } = await supabase
-            .from('group_members')
-            .select('group_id')
-            .eq('user_id', user.id);
-            
-          if (userGroups && userGroups.length > 0) {
-            const fixed = await ensureGroupHasQuestions(groupId);
-            
-            if (fixed) {
-              // Success! Reload the page to see the questions
-              setError('Group fixed successfully! Loading questions...');
-              setTimeout(() => window.location.reload(), 1500);
-              return;
-            } else {
-              setError('This group has no questions and could not be fixed automatically. Please contact the administrator.');
-            }
-          } else {
-            setError('This group has no questions. Please contact the administrator.');
-          }
-          
+          setError('This group has no questions. Please contact the group owner to add questions.');
           setLoading(false);
           return;
         }
@@ -198,7 +126,10 @@ const JoinGroup = () => {
         // Check question format
         const invalidQuestions = questionsData.filter(q => !q.question || !q.options);
         if (invalidQuestions.length > 0) {
-          console.error('Found invalid questions:', invalidQuestions);
+          console.error('Invalid questions found:', invalidQuestions);
+          setError('Some questions in this group are invalid. Please contact the group owner.');
+          setLoading(false);
+          return;
         }
 
         // Log all question data for debugging
@@ -214,12 +145,8 @@ const JoinGroup = () => {
           });
         });
 
-        // Shuffle the questions for variety
-        const shuffledQuestions = [...questionsData].sort(() => 0.5 - Math.random())
-        
-        // Take only 7 questions or all if less than 7
-        const finalQuestions = shuffledQuestions.slice(0, 7)
-        setQuestions(finalQuestions)
+        // Use questions exactly as they were created, no shuffling or limiting
+        setQuestions(questionsData);
       } catch (error) {
         console.error('Error fetching group data:', error)
         setError(`An error occurred while loading the group quiz: ${error.message}`)

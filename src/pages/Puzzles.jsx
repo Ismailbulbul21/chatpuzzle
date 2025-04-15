@@ -199,10 +199,9 @@ const Puzzles = () => {
           name: groupName,
           description: 'Group created based on your interests',
           created_by: userId,
-          min_correct_answers: 1,
-          total_questions: 2,
-          is_active: true,
-          last_message_at: new Date().toISOString()
+          is_interest_based: true,
+          min_correct_answers: 0,
+          total_questions: 0
         })
         .select()
         .single()
